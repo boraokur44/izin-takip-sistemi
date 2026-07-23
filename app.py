@@ -61,7 +61,12 @@ except:
     GONDERICI_SIFRE = "sifre_yok" 
 
 renk_paleti = ["#E74C3C", "#8E44AD", "#2980B9", "#27AE60", "#F39C12", "#D35400", "#16A085", "#34495E", "#E67E22", "#9B59B6", "#1ABC9C", "#3498DB", "#C0392B", "#2C3E50", "#F1C40F"]
-hoca_renkleri = {hoca: renk_paleti[i % len(renk_paleti)] for i, hoca in enumerate(h for hocalar in fakulte_verileri.values() for hoca in hocalar)}
+hoca_renkleri = {}
+renk_indeksi = 0
+for hocalar in fakulte_verileri.values():
+    for hoca in hocalar:
+        hoca_renkleri[hoca] = renk_paleti[renk_indeksi % len(renk_paleti)]
+        renk_indeksi += 1
 
 # --- 2. VERİTABANI BAĞLANTISI ---
 conn = sqlite3.connect('izinler.db', check_same_thread=False)
