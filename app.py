@@ -56,11 +56,11 @@ yonetim_bilgileri = {
     },
     "Gastronomi ve Mutfak Sanatları": {
         "baskan_adi": "Doç. Dr. Günay EROL",
-        "eposta": "b.bora.dedeoglu@nevsehir.edu.tr" 
+        "eposta": "gunayerol@nevsehir.edu.tr" 
     },
     "Turizm İşletmeciliği": {
         "baskan_adi": "Doç. Dr. Duygu EREN",
-        "eposta": "b.bora.dedeoglu@nevsehir.edu.tr" 
+        "eposta": "deren@nevsehir.edu.tr" 
     },
     "Dekanlik": {
         "baskan_adi": "Prof. Dr. Bekir Bora DEDEOĞLU",
