@@ -67,6 +67,13 @@ yonetim_bilgileri = {
     }
 }
 
+# --- YENİ EKLENEN: BÖLÜM BAZLI RENKLER (Makro Görünüm İçin) ---
+bolum_renkleri = {
+    "Turizm Rehberliği": "#E74C3C", # Kırmızı
+    "Gastronomi ve Mutfak Sanatları": "#2980B9", # Mavi
+    "Turizm İşletmeciliği": "#27AE60" # Yeşil
+}
+
 renk_paleti = ["#E74C3C", "#8E44AD", "#2980B9", "#27AE60", "#F39C12", "#D35400", "#16A085", "#34495E", "#E67E22", "#9B59B6", "#1ABC9C", "#3498DB", "#C0392B", "#2C3E50", "#F1C40F"]
 hoca_renkleri = {}
 renk_indeksi = 0
@@ -112,7 +119,15 @@ def takvim_html_olustur(yil, ay, secili_bolum):
                 hucre = f"<div style='font-weight:bold; color:#555;'>{gun.day}</div>"
                 for hoca, blm in izindekiler:
                     if secili_bolum == "Tüm Fakülte" or secili_bolum == blm:
-                        renk = hoca_renkleri.get(hoca, "#000")
+                        
+                        # YENİ EKLENEN RENK MANTIĞI:
+                        # Eğer "Tüm Fakülte" seçiliyse her hoca kendi bölümünün sabit rengini alır.
+                        if secili_bolum == "Tüm Fakülte":
+                            renk = bolum_renkleri.get(blm, "#333")
+                        # Eğer spesifik bir bölüm seçiliyse, her hoca kendine ait farklı rengi alır.
+                        else:
+                            renk = hoca_renkleri.get(hoca, "#000")
+                            
                         hucre += f"<div style='background-color:{renk}; color:white; padding:3px; margin-top:2px; border-radius:3px; font-size:10px;'>{hoca}</div>"
                 html_kodu += f"<td style='border:1px solid #ddd; padding:5px; vertical-align:top; height:80px;'>{hucre}</td>"
             else:
@@ -246,7 +261,6 @@ else:
             
         aylar_sozluk = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
         
-        # HATA ALINAN SATIRI DAHA GÜVENLİ VE SADE BİR HALE GETİRDİK
         hesaplanan_ay_isimleri = []
         for m, y in aylar_yillar:
             hesaplanan_ay_isimleri.append(f"{aylar_sozluk[m]} {y}")
