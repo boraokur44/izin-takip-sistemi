@@ -24,7 +24,7 @@ except:
     ADMIN_USER = "admin"
     ADMIN_PASS = "12345"
 
-# --- 1. AYARLAR: HOCALAR, BÖLÜMLER VE MAİL LİSTESİ ---
+# --- 1. AYARLAR: HOCALAR, BÖLÜMLER, KOMİSYONLAR VE MAİL LİSTESİ ---
 fakulte_verileri = {
     "Turizm Rehberliği": [
         "Prof. Dr. Bekir Bora DEDEOĞLU", "Prof. Dr. İbrahim YILMAZ", "Doç. Dr. Zeynep ÇOKAL", 
@@ -47,6 +47,22 @@ fakulte_verileri = {
         "Arş. Gör. Dr. Meral AKYÜZ", "Arş. Gör. Rümeysa UNAT"
     ]
 }
+
+# YENİ EKLENEN: KOMİSYON VERİLERİ (Örnek olarak doldurulmuştur, dilediğiniz gibi güncelleyebilirsiniz)
+komisyon_verileri = {
+    "Eğitim ve Müfredat Komisyonu": [
+        "Prof. Dr. Bekir Bora DEDEOĞLU", "Doç. Dr. Duygu EREN", "Dr. Öğr. Üyesi Nurgül ÇALIŞKAN", "Doç. Dr. İbrahim İLHAN"
+    ],
+    "Bologna ve Kalite Komisyonu": [
+        "Prof. Dr. Şule AYDIN", "Prof. Dr. Nilüfer ŞAHİN", "Doç. Dr. Zeynep ÇOKAL", "Doç. Dr. Ömer ÇOBAN"
+    ],
+    "Staj Komisyonu": [
+        "Doç. Dr. Ömer ÇOBAN", "Doç. Dr. Günay EROL", "Dr. Öğr. Üyesi Onur Şevket YILDIZ"
+    ]
+}
+
+# Filtreleme menülerinde kullanılacak ortak liste (Tüm Fakülte + Bölümler + Komisyonlar)
+filtre_secenekleri = ["Tüm Fakülte"] + list(fakulte_verileri.keys()) + list(komisyon_verileri.keys())
 
 yonetim_bilgileri = {
     "Turizm Rehberliği": {
@@ -91,19 +107,19 @@ conn.commit()
 # --- 3. YARDIMCI FONKSİYONLAR ---
 
 def kurul_uyarisi_hesapla(yil, ay, secili_bolum):
-    """
-    Arş. Gör. hariç kalan hoca sayısını hesaplar. Hafta içi günlerde eğer 3'ün 
-    altına düşülüyorsa, bölüm kurulunun toplanamayacağı uyarısını döndürür.
-    """
     df = pd.read_sql_query("SELECT * FROM izin_tablosu", conn)
-    hedef_bolumler = list(fakulte_verileri.keys()) if secili_bolum == "Tüm Fakülte" else [secili_bolum]
     
-    # 1. Bölümlerdeki oylamaya katılabilecek (Arş. Gör. olmayan) kişi sayısını bul
+    # Komisyon veya Tüm fakülte seçiliyse, tüm bölümlerin kurullarını denetle. 
+    # Spesifik bir bölüm seçiliyse sadece o bölümü denetle.
+    if secili_bolum in fakulte_verileri:
+        hedef_bolumler = [secili_bolum]
+    else:
+        hedef_bolumler = list(fakulte_verileri.keys())
+    
     oy_kullanan_sayisi = {}
     for blm in hedef_bolumler:
         oy_kullanan_sayisi[blm] = len([h for h in fakulte_verileri[blm] if "Arş. Gör." not in h])
         
-    # 2. İzinleri gün gün haritalandır (Arş. Gör.leri dahil etme)
     gunluk_izinler = {}
     for _, row in df.iterrows():
         if "Arş. Gör." in row['hoca_adi']: 
@@ -117,7 +133,6 @@ def kurul_uyarisi_hesapla(yil, ay, secili_bolum):
             if (row['hoca_adi'], row['bolum']) not in gunluk_izinler[gun]:
                 gunluk_izinler[gun].append((row['hoca_adi'], row['bolum']))
 
-    # 3. Ayın sadece HAFTA İÇİ günlerini kontrol et
     cal = calendar.Calendar(firstweekday=0)
     ay_gunleri = [d for d in cal.itermonthdates(yil, ay) if d.month == ay and d.weekday() < 5] 
     
@@ -125,11 +140,9 @@ def kurul_uyarisi_hesapla(yil, ay, secili_bolum):
     for gun in ay_gunleri:
         izindekiler = gunluk_izinler.get(gun, [])
         for blm in hedef_bolumler:
-            # O gün o bölümde izinde olan (oy hakkı bulunan) kişi sayısı
             izinli_sayisi = len([h for h, b in izindekiler if b == blm])
             kalan_kisi = oy_kullanan_sayisi[blm] - izinli_sayisi
             
-            # Eğer asgari üye (3) sağlanamıyorsa listeye ekle
             if kalan_kisi < 3: 
                 uyarilar.append({
                     "tarih": gun.strftime("%d.%m.%Y"),
@@ -155,6 +168,20 @@ def takvim_html_olustur(yil, ay, secili_bolum):
     ay_gunleri = cal.monthdatescalendar(yil, ay)
     aylar_isim = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
     
+    # Hangi hocalari filtreleyeceğiz ve Hangi renk modunu kullanacağız belirliyoruz
+    if secili_bolum == "Tüm Fakülte":
+        hedef_hocalar = [h for hocalar in fakulte_verileri.values() for h in hocalar]
+        renk_modu = "bolum"
+    elif secili_bolum in fakulte_verileri:
+        hedef_hocalar = fakulte_verileri[secili_bolum]
+        renk_modu = "hoca"
+    elif secili_bolum in komisyon_verileri:
+        hedef_hocalar = komisyon_verileri[secili_bolum]
+        renk_modu = "bolum"
+    else:
+        hedef_hocalar = []
+        renk_modu = "bolum"
+
     html_kodu = f"<h3 style='font-family: Arial; margin-bottom:5px; color:#2c3e50;'>{secili_bolum} - {aylar_isim[ay]} {yil}</h3>"
     html_kodu += "<table style='width:100%; border-collapse: collapse; font-family: Arial; font-size: 12px; table-layout: fixed;'>"
     html_kodu += "<tr style='background-color: #f0f2f6;'><th style='border:1px solid #ddd; padding:5px;'>Pzt</th><th style='border:1px solid #ddd; padding:5px;'>Sal</th><th style='border:1px solid #ddd; padding:5px;'>Çar</th><th style='border:1px solid #ddd; padding:5px;'>Per</th><th style='border:1px solid #ddd; padding:5px;'>Cum</th><th style='border:1px solid #ddd; padding:5px;'>Cmt</th><th style='border:1px solid #ddd; padding:5px;'>Paz</th></tr>"
@@ -166,8 +193,8 @@ def takvim_html_olustur(yil, ay, secili_bolum):
                 izindekiler = gunluk_izinler.get(gun, [])
                 hucre = f"<div style='font-weight:bold; color:#555;'>{gun.day}</div>"
                 for hoca, blm in izindekiler:
-                    if secili_bolum == "Tüm Fakülte" or secili_bolum == blm:
-                        if secili_bolum == "Tüm Fakülte":
+                    if hoca in hedef_hocalar:
+                        if renk_modu == "bolum":
                             renk = bolum_renkleri.get(blm, "#333")
                         else:
                             renk = hoca_renkleri.get(hoca, "#000")
@@ -196,6 +223,33 @@ def eposta_gonder(alici_eposta, konu, html_icerik):
     except Exception as e:
         return str(e)
 
+# YENİ EKLENEN: GÖREVİ BAŞINDA OLANLARI BULMA FONKSİYONU
+def izinli_olmayanlari_getir(kontrol_tarihi, secili_filtre):
+    df = pd.read_sql_query("SELECT * FROM izin_tablosu", conn)
+    izinliler = []
+    
+    for _, row in df.iterrows():
+        start = datetime.datetime.strptime(row['baslangic'], "%Y-%m-%d").date()
+        end = datetime.datetime.strptime(row['bitis'], "%Y-%m-%d").date()
+        # Kontrol tarihi izin aralığının içindeyse
+        if start <= kontrol_tarihi <= end:
+            izinliler.append(row['hoca_adi'])
+            
+    # Hedef listeyi filtreye göre belirliyoruz
+    if secili_filtre == "Tüm Fakülte":
+        hedef_liste = [h for hocalar in fakulte_verileri.values() for h in hocalar]
+    elif secili_filtre in fakulte_verileri:
+        hedef_liste = fakulte_verileri[secili_filtre]
+    elif secili_filtre in komisyon_verileri:
+        hedef_liste = komisyon_verileri[secili_filtre]
+    else:
+        hedef_liste = []
+        
+    aktif_hocalar = [h for h in hedef_liste if h not in izinliler]
+    izindeki_hocalar = [h for h in hedef_liste if h in izinliler]
+    
+    return aktif_hocalar, izindeki_hocalar
+
 
 # --- 4. GÜVENLİK VE GÖRÜNÜM AYARLARI ---
 if "giris_yapildi" not in st.session_state:
@@ -208,7 +262,8 @@ if not st.session_state["giris_yapildi"]:
     st.title("🌴 Turizm Fakültesi İzin Takip Sistemi")
     st.info("👁️ Şu an **Misafir Modundasınız**. Sistemdeki güncel izinleri görüntüleyebilirsiniz. Veri girişi için yetkili girişi yapınız.")
     
-    pub_sekme1, pub_sekme2 = st.tabs(["📅 Takvim Görüntüle", "🔐 Yetkili Girişi"])
+    # Yeni sekme misafirlere de eklendi
+    pub_sekme1, pub_sekme2, pub_sekme3 = st.tabs(["📅 Takvim Görüntüle", "✅ İzinli Olmayanlar", "🔐 Yetkili Girişi"])
     
     with pub_sekme1:
         aylar = {1:"Ocak", 2:"Şubat", 3:"Mart", 4:"Nisan", 5:"Mayıs", 6:"Haziran", 7:"Temmuz", 8:"Ağustos", 9:"Eylül", 10:"Ekim", 11:"Kasım", 12:"Aralık"}
@@ -219,19 +274,38 @@ if not st.session_state["giris_yapildi"]:
         with f_col2: 
             secilen_yil = st.selectbox("Yıl", [2026, 2027, 2028, 2029, 2030], index=0, key="pub_yil")
         with f_col3: 
-            filtre_bolum = st.selectbox("Takvimi Görüntülenecek Bölüm", ["Tüm Fakülte"] + list(fakulte_verileri.keys()), key="pub_bolum")
+            filtre_bolum = st.selectbox("Takvimi Görüntülenecek Filtre", filtre_secenekleri, key="pub_bolum")
             
         ekran_takvimi = takvim_html_olustur(secilen_yil, secilen_ay, filtre_bolum)
         st.markdown(ekran_takvimi, unsafe_allow_html=True)
         
-        # BÖLÜM KURULU RİSK UYARILARINI YAZDIRMA (MİSAFİR)
         uyarilar = kurul_uyarisi_hesapla(secilen_yil, secilen_ay, filtre_bolum)
         if uyarilar:
             st.error("🚨 **Bölüm Kurulu Risk Uyarıları (Asgari Üye Kontrolü):**")
             for u in uyarilar:
                 st.write(f"- **{u['tarih']}** tarihinde **{u['bolum']}** Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır *(Kalan oy kullanabilir üye: {u['kalan']})*.")
-        
+
+    # YENİ EKLENEN SEKME (MİSAFİR İÇİN)
     with pub_sekme2:
+        st.subheader("Görevi Başında Olan Personel Listesi")
+        c1, c2 = st.columns(2)
+        with c1:
+            kontrol_t = st.date_input("Kontrol Edilecek Tarih", value=date.today(), format="DD/MM/YYYY", key="pub_date")
+        with c2:
+            secilen_filtre = st.selectbox("Görüntülenecek Grup (Bölüm / Komisyon)", filtre_secenekleri, key="pub_filtre")
+            
+        aktifler, izinliler = izinli_olmayanlari_getir(kontrol_t, secilen_filtre)
+        
+        st.write(f"**{kontrol_t.strftime('%d.%m.%Y')}** tarihi itibarıyla **{secilen_filtre}** listesi:")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.success(f"🟢 Görevi Başında Olanlar ({len(aktifler)} Kişi)")
+            for h in aktifler: st.write(f"- {h}")
+        with col_b:
+            st.error(f"🔴 İzinde Olanlar ({len(izinliler)} Kişi)")
+            for h in izinliler: st.write(f"- {h}")
+
+    with pub_sekme3:
         bos1, orta, bos2 = st.columns([1, 1, 1])
         with orta:
             st.markdown("<h3 style='text-align: center;'>Yönetici Girişi</h3>", unsafe_allow_html=True)
@@ -239,7 +313,6 @@ if not st.session_state["giris_yapildi"]:
                 kullanici_adi = st.text_input("Kullanıcı Adı")
                 sifre = st.text_input("Şifre", type="password")
                 giris_butonu = st.form_submit_button("Giriş Yap", use_container_width=True)
-                
                 if giris_butonu:
                     if kullanici_adi == ADMIN_USER and sifre == ADMIN_PASS:
                         st.session_state["giris_yapildi"] = True
@@ -260,7 +333,8 @@ else:
             st.rerun()
 
     st.title("🌴 Turizm Fakültesi İzin Takip Sistemi")
-    sekme1, sekme2, sekme3, sekme4 = st.tabs(["📝 İzin Formu", "📅 Aylık Takvim", "✉️ E-Posta Bildirimleri", "⚙️ Veri & Yedek Yönetimi"])
+    # Yeni sekme yöneticiye de eklendi
+    sekme1, sekme2, sekme3, sekme4, sekme5 = st.tabs(["📝 İzin Formu", "📅 Aylık Takvim", "✅ İzinli Olmayanlar", "✉️ E-Posta Bildirimleri", "⚙️ Veri & Yedek Yönetimi"])
 
     # --- SEKME 1: İZİN FORMU ---
     with sekme1:
@@ -268,8 +342,9 @@ else:
         secilen_bolum = st.selectbox("Lütfen Bölüm Seçiniz", list(fakulte_verileri.keys()))
         secilen_hoca = st.selectbox("Öğretim Üyesini Seçiniz", fakulte_verileri[secilen_bolum])
         col1, col2 = st.columns(2)
-        with col1: baslangic_tarihi = st.date_input("İzin Başlangıç Tarihi", min_value=date.today())
-        with col2: bitis_tarihi = st.date_input("İzin Bitiş Tarihi", min_value=baslangic_tarihi)
+        # TARİH FORMATLARI GÜNCELLENDİ (DD/MM/YYYY)
+        with col1: baslangic_tarihi = st.date_input("İzin Başlangıç Tarihi", min_value=date.today(), format="DD/MM/YYYY")
+        with col2: bitis_tarihi = st.date_input("İzin Bitiş Tarihi", min_value=baslangic_tarihi, format="DD/MM/YYYY")
         
         if st.button("İzni Sisteme Kaydet", type="primary"):
             fark = bitis_tarihi - baslangic_tarihi
@@ -288,20 +363,39 @@ else:
         with f_col2: 
             secilen_yil = st.selectbox("Yıl", [2026, 2027, 2028, 2029, 2030], index=0, key="goruntu_yil")
         with f_col3: 
-            filtre_bolum = st.selectbox("Takvimi Görüntülenecek Bölüm", ["Tüm Fakülte"] + list(fakulte_verileri.keys()), key="goruntu_bolum")
+            filtre_bolum = st.selectbox("Takvimi Görüntülenecek Filtre", filtre_secenekleri, key="goruntu_bolum")
             
         ekran_takvimi = takvim_html_olustur(secilen_yil, secilen_ay, filtre_bolum)
         st.markdown(ekran_takvimi, unsafe_allow_html=True)
         
-        # BÖLÜM KURULU RİSK UYARILARINI YAZDIRMA (YÖNETİCİ)
         uyarilar_yonetici = kurul_uyarisi_hesapla(secilen_yil, secilen_ay, filtre_bolum)
         if uyarilar_yonetici:
             st.error("🚨 **Bölüm Kurulu Risk Uyarıları (Asgari Üye Kontrolü):**")
             for u in uyarilar_yonetici:
                 st.write(f"- **{u['tarih']}** tarihinde **{u['bolum']}** Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır *(Kalan oy kullanabilir üye: {u['kalan']})*.")
 
-    # --- SEKME 3: OTOMATİK 3 AYLIK E-POSTA BİLDİRİMİ ---
+    # --- YENİ SEKME 3: İZİNLİ OLMAYANLAR (GÖREVİ BAŞINDA OLANLAR) ---
     with sekme3:
+        st.subheader("Görevi Başında Olan Personel Listesi")
+        c1, c2 = st.columns(2)
+        with c1:
+            kontrol_t = st.date_input("Kontrol Edilecek Tarih", value=date.today(), format="DD/MM/YYYY", key="yonetici_date")
+        with c2:
+            secilen_filtre = st.selectbox("Görüntülenecek Grup (Bölüm / Komisyon)", filtre_secenekleri, key="yonetici_filtre")
+            
+        aktifler, izinliler = izinli_olmayanlari_getir(kontrol_t, secilen_filtre)
+        
+        st.write(f"**{kontrol_t.strftime('%d.%m.%Y')}** tarihi itibarıyla **{secilen_filtre}** listesi:")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.success(f"🟢 Görevi Başında Olanlar ({len(aktifler)} Kişi)")
+            for h in aktifler: st.write(f"- {h}")
+        with col_b:
+            st.error(f"🔴 İzinde Olanlar ({len(izinliler)} Kişi)")
+            for h in izinliler: st.write(f"- {h}")
+
+    # --- SEKME 4: OTOMATİK 3 AYLIK E-POSTA BİLDİRİMİ ---
+    with sekme4:
         st.subheader("Yöneticilere Güncel Takvimleri İlet")
         su_an = date.today()
         aylar_yillar = []
@@ -326,7 +420,6 @@ else:
                     baskan_isim = bilgiler["baskan_adi"]
                     hedef_bolum = "Tüm Fakülte" if birim == "Dekanlik" else birim
                     
-                    # 3 AYLIK UYARILARI TOPLA (E-POSTA İÇİN)
                     tum_uyarilar = []
                     for m, y in aylar_yillar:
                         tum_uyarilar.extend(kurul_uyarisi_hesapla(y, m, hedef_bolum))
@@ -339,7 +432,6 @@ else:
                             uyari_html += f"<li style='color: #991b1b; padding-bottom: 5px;'><b>{u['tarih']}</b> tarihinde <b>{u['bolum']}</b> Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır (Kalan üye: {u['kalan']}).</li>"
                         uyari_html += "</ul></div><br>"
 
-                    # MAİL ŞABLONLARI
                     if birim == "Dekanlik":
                         tf_html_bloklari = []
                         for m, y in aylar_yillar: tf_html_bloklari.append(takvim_html_olustur(y, m, "Tüm Fakülte"))
@@ -383,8 +475,8 @@ else:
                 st.write("### Gönderim Sonucu:")
                 for sonuc in gonderim_ozeti: st.write(sonuc)
 
-    # --- SEKME 4: SİLME VE YEDEKLEME İŞLEMLERİ ---
-    with sekme4:
+    # --- SEKME 5: SİLME VE YEDEKLEME İŞLEMLERİ ---
+    with sekme5:
         st.subheader("⚙️ Veri ve Yedek Yönetimi")
         df_mevcut = pd.read_sql_query("SELECT id, hoca_adi, bolum, baslangic, bitis, gun_sayisi FROM izin_tablosu", conn)
         s1, s2 = st.columns(2)
