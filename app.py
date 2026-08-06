@@ -186,6 +186,53 @@ def kurul_uyarisi_hesapla(yil, ay, secili_bolum):
     return uyarilar
 
 
+def staj_komisyonu_uyarisi_hesapla(yil, ay, secili_bolum):
+    df = pd.read_sql_query("SELECT * FROM izin_tablosu", conn)
+    
+    staj_komisyonlari_map = {
+        "Turizm İşletmeciliği": "Turizm İşletmeciliği Staj Komisyonu",
+        "Turizm Rehberliği": "Turizm Rehberliği Staj Komisyonu",
+        "Gastronomi ve Mutfak Sanatları": "Gastronomi ve Mutfak Sanatları Staj Komisyonu"
+    }
+    staj_komisyonlari_list = list(staj_komisyonlari_map.values())
+    
+    if secili_bolum == "Tüm Fakülte":
+        kontrol_edilecekler = staj_komisyonlari_list
+    elif secili_bolum in staj_komisyonlari_map: 
+        kontrol_edilecekler = [staj_komisyonlari_map[secili_bolum]]
+    elif secili_bolum in staj_komisyonlari_list: 
+        kontrol_edilecekler = [secili_bolum]
+    else: 
+        kontrol_edilecekler = []
+        
+    gunluk_izinler = {}
+    for _, row in df.iterrows():
+        start = datetime.datetime.strptime(row['baslangic'], "%Y-%m-%d").date()
+        end = datetime.datetime.strptime(row['bitis'], "%Y-%m-%d").date()
+        for i in range((end - start).days + 1):
+            gun = start + timedelta(days=i)
+            if gun not in gunluk_izinler: 
+                gunluk_izinler[gun] = []
+            gunluk_izinler[gun].append(row['hoca_adi'])
+
+    cal = calendar.Calendar(firstweekday=0)
+    ay_gunleri = [d for d in cal.itermonthdates(yil, ay) if d.month == ay and d.weekday() < 5] 
+    
+    uyarilar = []
+    for gun in ay_gunleri:
+        izindekiler = gunluk_izinler.get(gun, [])
+        for komisyon_adi in kontrol_edilecekler:
+            uyeler = komisyon_verileri.get(komisyon_adi, [])
+            izinli_uye_sayisi = sum(1 for uye in uyeler if uye in izindekiler)
+            
+            if izinli_uye_sayisi == len(uyeler) and len(uyeler) > 0:
+                uyarilar.append({
+                    "tarih": gun.strftime("%d.%m.%Y"),
+                    "komisyon": komisyon_adi
+                })
+    return uyarilar
+
+
 def takvim_html_olustur(yil, ay, secili_bolum):
     df = pd.read_sql_query("SELECT * FROM izin_tablosu", conn)
     gunluk_izinler = {}
@@ -325,6 +372,13 @@ if not st.session_state["giris_yapildi"]:
             for u in uyarilar:
                 st.write(f"- **{u['tarih']}** tarihinde **{u['bolum']}** Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır *(Kalan oy kullanabilir üye: {u['kalan']})*.")
         
+        # STAJ KOMİSYONU RİSK UYARILARINI YAZDIRMA
+        staj_uyarilar = staj_komisyonu_uyarisi_hesapla(secilen_yil, secilen_ay, filtre_grup_pub)
+        if staj_uyarilar:
+            st.warning("⚠️ **Staj Komisyonu Risk Uyarıları (Tüm Üyeler İzinde):**")
+            for u in staj_uyarilar:
+                st.write(f"- **{u['tarih']}** tarihinde **{u['komisyon']}**'nun tüm üyeleri izindedir.")
+        
     # 2. SEKME: GÖREVİ BAŞINDA OLANLAR (MİSAFİR)
     with pub_sekme2:
         st.subheader("Görevi Başında Olan Personel Listesi")
@@ -437,6 +491,12 @@ else:
             for u in uyarilar_yonetici:
                 st.write(f"- **{u['tarih']}** tarihinde **{u['bolum']}** Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır *(Kalan oy kullanabilir üye: {u['kalan']})*.")
 
+        staj_uyarilar_yonetici = staj_komisyonu_uyarisi_hesapla(secilen_yil, secilen_ay, filtre_grup_yon)
+        if staj_uyarilar_yonetici:
+            st.warning("⚠️ **Staj Komisyonu Risk Uyarıları (Tüm Üyeler İzinde):**")
+            for u in staj_uyarilar_yonetici:
+                st.write(f"- **{u['tarih']}** tarihinde **{u['komisyon']}**'nun tüm üyeleri izindedir.")
+
     # --- SEKME 3: İZİNLİ OLMAYANLAR (GÖREVİ BAŞINDA OLANLAR) ---
     with sekme3:
         st.subheader("Görevi Başında Olan Personel Listesi")
@@ -501,16 +561,28 @@ else:
                     hedef_bolum = "Tüm Fakülte" if birim == "Dekanlik" else birim
                     
                     tum_uyarilar = []
+                    tum_staj_uyarilar = []
                     for m, y in aylar_yillar:
                         tum_uyarilar.extend(kurul_uyarisi_hesapla(y, m, hedef_bolum))
+                        tum_staj_uyarilar.extend(staj_komisyonu_uyarisi_hesapla(y, m, hedef_bolum))
                         
                     uyari_html = ""
-                    if tum_uyarilar:
+                    if tum_uyarilar or tum_staj_uyarilar:
                         uyari_html = "<br><div style='background-color: #fee2e2; border-left: 5px solid #ef4444; padding: 10px; border-radius: 4px;'>"
-                        uyari_html += "<h3 style='color: #b91c1c; margin-top:0;'>🚨 Bölüm Kurulu Risk Uyarıları</h3><ul style='margin-bottom:0;'>"
-                        for u in tum_uyarilar:
-                            uyari_html += f"<li style='color: #991b1b; padding-bottom: 5px;'><b>{u['tarih']}</b> tarihinde <b>{u['bolum']}</b> Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır (Kalan üye: {u['kalan']}).</li>"
-                        uyari_html += "</ul></div><br>"
+                        
+                        if tum_uyarilar:
+                            uyari_html += "<h3 style='color: #b91c1c; margin-top:0;'>🚨 Bölüm Kurulu Risk Uyarıları</h3><ul style='margin-bottom:0;'>"
+                            for u in tum_uyarilar:
+                                uyari_html += f"<li style='color: #991b1b; padding-bottom: 5px;'><b>{u['tarih']}</b> tarihinde <b>{u['bolum']}</b> Bölüm Kurulu için asgari öğretim üyesi toplanamamaktadır (Kalan üye: {u['kalan']}).</li>"
+                            uyari_html += "</ul>"
+                            
+                        if tum_staj_uyarilar:
+                            uyari_html += "<h3 style='color: #b91c1c; margin-top:10px;'>⚠️ Staj Komisyonu Risk Uyarıları</h3><ul style='margin-bottom:0;'>"
+                            for u in tum_staj_uyarilar:
+                                uyari_html += f"<li style='color: #991b1b; padding-bottom: 5px;'><b>{u['tarih']}</b> tarihinde <b>{u['komisyon']}</b>'nun tüm üyeleri izindedir.</li>"
+                            uyari_html += "</ul>"
+                            
+                        uyari_html += "</div><br>"
 
                     if birim == "Dekanlik":
                         tf_html_bloklari = []
